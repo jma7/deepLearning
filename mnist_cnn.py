@@ -55,7 +55,7 @@ class ANN(object):
 		self.T=tf.placeholder(tf.float32,shape=[None,10])
 		self.mnist=mnist
 
-	def fit(self,learning_rate=10e-5, mu=0.99, decay=0.999, reg=10e-3, epochs=400, batch_sz=100, show_fig=False):
+	def fit(self,lr=10e-5, mu=0.99, decay=0.999, reg=10e-3, epochs=400, batch_sz=100, show_fig=False):
 		N,D=self.mnist.test.images.shape
 		self.hidden_layers=[]
 		M1=D
@@ -81,7 +81,7 @@ class ANN(object):
 		Yvalid_flat = np.argmax(Yvalid, axis=1)
 		rcost = reg*sum([tf.nn.l2_loss(p) for p in self.params])
 		cost=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.y,labels=self.T))+rcost
-		train_step = tf.train.RMSPropOptimizer(learning_rate, decay=decay, momentum=mu).minimize(cost)
+		train_step = tf.train.RMSPropOptimizer(lr, decay=decay, momentum=mu).minimize(cost)
 		prediction = self.predict(self.x)
 		init = tf.global_variables_initializer()
 		n_batches = N // batch_sz
@@ -126,26 +126,33 @@ class ConvPoolLayer(object):
 		self.b=tf.Variable(np.zeros(outputSize,dtype=np.float32))
 		self.poolsize=poolsize
 		self.params=[self.W,self.b]
+		self.inputSize=inputSize
+		self.outputSize=outputSize
 
-	def forward(self,X)
+	def forward(self,X):
 		conv_out=tf.nn.conv2d(X,self.W,strides=[1,1,1,1],padding="SAME")
 		conv_out=tf.nn.bias_add(conv_out,self.b)
 		pool_out=tf.nn.max_pool(conv_out,
-			ksize=[1,poolsize[0],poolsize[1],1],
-			stride=[1,poolsize[0],poolsize[1],1],
+			ksize=[1,self.poolsize[0],self.poolsize[1],1],
+			strides=[1,self.poolsize[0],self.poolsize[1],1],
 			padding="SAME")
-		return tf.relu(pool_out)
+		return tf.tanh(pool_out)
 
 class CNN(object):
-	def __init__(self,convpool_layer_sizes,hidden_layer_sizes):
+	def __init__(self,convpool_layer_sizes,hidden_layer_sizes,mnist):
 		self.convpool_layer_sizes=convpool_layer_sizes
 		self.hidden_layer_sizes=hidden_layer_sizes
-		self.x=tf.placeholder(tf.float32,shape=[None,width,height,c],name="X")
+		self.x=tf.placeholder(tf.float32,shape=[None,28,28,1],name="X")
 		self.T=tf.placeholder(tf.float32,shape=[None,10],name="Y")
+		
 		self.mnist=mnist
 
-	def fit(self,lr=10e-4, mu=0.99,reg=10e-4,decay=0.9999,eps=10e-3,batch_sz=30,epoch=3,show_fig=True):
-		N,width,height,channel=self.x.shape
+	def fit(self,lr=10e-4, mu=0.99,reg=10e-4,decay=0.9999,eps=10e-3,batch_sz=30,epochs=3,show_fig=True):
+		
+		N,D=self.mnist.test.images[:-batch_sz].shape
+		width=28
+		height=28
+		channel=1
 		self.hidden_layers=[]
 		self.convpool_layers=[]
 		mi=channel
@@ -155,17 +162,19 @@ class CNN(object):
 
 		#convPool layers
 		for mo,fw,fh in self.convpool_layer_sizes:
-			layer=ConvPoolLayer(mi,mo,fw,hf)
+			layer=ConvPoolLayer(mi,mo,fw,fh)
 			self.convpool_layers.append(layer)
 			outwidth=outwidth//2
-			outheigth=outheight//2
-			mo=mi
+			outheight=outheight//2
+			mi=mo
 		#flatten
+		print(outwidth,outheight)
 		M1=self.convpool_layer_sizes[-1][0]*outwidth*outheight
 		count=0
 
 		#hidden full connnected layers
 		for M2 in self.hidden_layer_sizes:
+			print(M1,M2)
 			h=HiddenLayer(M1,M2,count)
 			# print("hidden",M1,M2)
 			M1=M2
@@ -189,7 +198,7 @@ class CNN(object):
 		Yvalid_flat = np.argmax(Yvalid, axis=1)
 		rcost = reg*sum([tf.nn.l2_loss(p) for p in self.params])
 		cost=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.y,labels=self.T))+rcost
-		train_step = tf.train.RMSPropOptimizer(learning_rate, decay=decay, momentum=mu).minimize(cost)
+		train_step = tf.train.RMSPropOptimizer(lr, decay=decay, momentum=mu).minimize(cost)
 		prediction = self.predict(self.x)
 		init = tf.global_variables_initializer()
 		n_batches = N // batch_sz
@@ -199,11 +208,11 @@ class CNN(object):
 			for i in range(epochs):
 				for j in range(n_batches-1):
 					batch = self.mnist.train.next_batch(batch_sz)
-					sess.run(train_step, feed_dict={self.x: batch[0], self.T: batch[1]})
+					sess.run(train_step, feed_dict={self.x: np.reshape(batch[0],[batch_sz,28,28,1]), self.T: batch[1]})
 					if j % 20 == 0:
-						c = sess.run(cost, feed_dict={self.x: Xvalid, self.T: Yvalid})
+						c = sess.run(cost, feed_dict={self.x: np.reshape(Xvalid,[batch_sz,28,28,1]), self.T: Yvalid})
 						costs.append(c)
-						p = sess.run(prediction, feed_dict={self.x: Xvalid, self.T: Yvalid})
+						p = sess.run(prediction, feed_dict={self.x: np.reshape(Xvalid,[batch_sz,28,28,1]), self.T: Yvalid})
 						e = error_rate(Yvalid_flat, p)
 						# correct_prediction = tf.equal(tf.argmax(self.y,1), tf.argmax(self.T,1))
 						# accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
@@ -215,8 +224,10 @@ class CNN(object):
 		Z=X
 		for c in self.convpool_layers:
 			Z=c.forward(Z)
-		Z.shape=Z.get_shape().as_list()
+		Z_shape=Z.get_shape().as_list()
+		print(Z_shape)
 		Z = tf.reshape(Z, [-1, np.prod(Z_shape[1:])])
+		print(Z)
 		for h in self.hidden_layers:
 			Z=h.forward(Z)
 			# print(h.M1,h.M2,Z)
@@ -249,7 +260,8 @@ class CNN(object):
 
 mnist=input_data.read_data_sets('MNIST_data',one_hot=True)
 # model=logistic(mnist)
-model=ANN([100,50],mnist)
+#model=ANN([100,50],mnist)
+model = CNN([(32, 5, 5), (64, 5, 5)],[500, 300],mnist)
 model.fit()
 
 
