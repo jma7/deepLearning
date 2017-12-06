@@ -1,9 +1,14 @@
 import numpy as np
 from skimage import morphology
+from skimage.morphology import ball, disk, dilation, binary_erosion, remove_small_objects, erosion, closing, reconstruction, binary_closing
 from skimage import measure
+from skimage.filters import roberts, sobel
 from sklearn.cluster import KMeans
 from skimage.transform import resize
+from skimage.segmentation import clear_border
+from skimage.measure import label,regionprops, perimeter
 from glob import glob
+from scipy import ndimage as ndi
 import matplotlib.pyplot as plt
 import os
 import sys
@@ -12,75 +17,161 @@ subFolder=sys.argv[1]
 working_path = os.path.join("/work/05268/junma7/maverick/luna16/",subFolder,subFolder+"_nodule/")
 file_list=glob(working_path+"images_*.npy")
 
+
+def segment_lung(img):
+    #Standardize the pixel values
+    mean = np.mean(img)
+    std = np.std(img)
+    img = img-mean
+    img = img/std
+    # Find the average pixel value near the lungs
+    # to renormalize washed out images
+    middle = img[100:400,100:400]
+    #mean = np.mean(middle)  
+    #max = np.max(img)
+    #min = np.min(img)
+    # To improve threshold finding, I'm moving the 
+    # underflow and overflow on the pixel spectrum
+    #img[img==max]=mean
+    #img[img==min]=mean
+    #
+    # Using Kmeans to separate foreground (radio-opaque tissue)
+    # and background (radio transparent tissue ie lungs)
+    # Doing this only on the center of the image to avoid 
+    # the non-tissue parts of the image as much as possible
+    #
+    kmeans = KMeans(n_clusters=2).fit(np.reshape(middle,[np.prod(middle.shape),1]))
+    centers = sorted(kmeans.cluster_centers_.flatten())
+    threshold = np.mean(centers)
+    thresh_img = np.where(img<threshold,1.0,0.0)  # threshold the image
+    #
+    # I found an initial erosion helful for removing graininess from some of the regions
+    # and then large dialation is used to make the lung region 
+    # engulf the vessels and incursions into the lung cavity by 
+    # radio opaque tissue
+    #
+    eroded = morphology.erosion(thresh_img,np.ones([4,4]))
+    dilation = morphology.dilation(eroded,np.ones([10,10]))
+    #
+    #  Label each region and obtain the region properties
+    #  The background region is removed by removing regions 
+    #  with a bbox that is to large in either dimnsion
+    #  Also, the lungs are generally far away from the top 
+    #  and bottom of the image, so any regions that are too
+    #  close to the top and bottom are removed
+    #  This does not produce a perfect segmentation of the lungs
+    #  from the image, but it is surprisingly good considering its
+    #  simplicity. 
+    #
+    labels = measure.label(dilation)
+    label_vals = np.unique(labels)
+    regions = measure.regionprops(labels)
+    good_labels = []
+    for prop in regions:
+        B = prop.bbox
+        if B[2]-B[0]<475 and B[3]-B[1]<475 and B[0]>40 and B[2]<472:
+            good_labels.append(prop.label)
+    mask = np.ndarray([512,512],dtype=np.int8)
+    mask[:] = 0
+    #
+    #  The mask here is the mask for the lungs--not the nodes
+    #  After just the lungs are left, we do another large dilation
+    #  in order to fill in and out the lung mask 
+    #
+    for N in good_labels:
+        mask = mask + np.where(labels==N,1,0)
+    mask = morphology.dilation(mask,np.ones([10,10])) # one last dilation
+    return mask
+
+def get_segmented_lungs(im, plot=False):
+    
+    '''
+    This funtion segments the lungs from the given 2D slice.
+    '''
+    if plot == True:
+        f, plots = plt.subplots(8, 1, figsize=(5, 40))
+    '''
+    Step 1: Convert into a binary image. 
+    '''
+    binary = im < 604
+    if plot == True:
+        plots[0].axis('off')
+        plots[0].imshow(binary, cmap=plt.cm.bone) 
+    '''
+    Step 2: Remove the blobs connected to the border of the image.
+    '''
+    cleared = clear_border(binary)
+    if plot == True:
+        plots[1].axis('off')
+        plots[1].imshow(cleared, cmap=plt.cm.bone) 
+    '''
+    Step 3: Label the image.
+    '''
+    label_image = label(cleared)
+    if plot == True:
+        plots[2].axis('off')
+        plots[2].imshow(label_image, cmap=plt.cm.bone) 
+    '''
+    Step 4: Keep the labels with 2 largest areas.
+    '''
+    areas = [r.area for r in regionprops(label_image)]
+    areas.sort()
+    if len(areas) > 2:
+        for region in regionprops(label_image):
+            if region.area < areas[-2]:
+                for coordinates in region.coords:                
+                       label_image[coordinates[0], coordinates[1]] = 0
+    binary = label_image > 0
+    if plot == True:
+        plots[3].axis('off')
+        plots[3].imshow(binary, cmap=plt.cm.bone) 
+    '''
+    Step 5: Erosion operation with a disk of radius 2. This operation is 
+    seperate the lung nodules attached to the blood vessels.
+    '''
+    selem = disk(2)
+    binary = binary_erosion(binary, selem)
+    if plot == True:
+        plots[4].axis('off')
+        plots[4].imshow(binary, cmap=plt.cm.bone) 
+    '''
+    Step 6: Closure operation with a disk of radius 10. This operation is 
+    to keep nodules attached to the lung wall.
+    '''
+    selem = disk(10)
+    binary = binary_closing(binary, selem)
+    if plot == True:
+        plots[5].axis('off')
+        plots[5].imshow(binary, cmap=plt.cm.bone) 
+    '''
+    Step 7: Fill in the small holes inside the binary mask of lungs.
+    '''
+    edges = roberts(binary)
+    binary = ndi.binary_fill_holes(edges)
+    if plot == True:
+        plots[6].axis('off')
+        plots[6].imshow(binary, cmap=plt.cm.bone) 
+    '''
+    Step 8: Superimpose the binary mask on the input image.
+    '''
+    get_high_vals = binary == 0
+    im[get_high_vals] = 0
+    if plot == True:
+        plots[7].axis('off')
+        plots[7].imshow(im, cmap=plt.cm.bone) 
+        
+    return im
+
+
 for img_file in file_list:
-    # I ran into an error when using Kmean on np.float16, so I'm using np.float64 here
-    imgs_to_process = np.load(img_file).astype(np.float64) 
+    #segment_lung(img_file)
+    imgs_to_process = np.load(img_file).astype(np.float64)
     print("on image "+ img_file)
     for i in range(len(imgs_to_process)):
         img = imgs_to_process[i]
-        #Standardize the pixel values
-        mean = np.mean(img)
-        std = np.std(img)
-        img = img-mean
-        img = img/std
-        # Find the average pixel value near the lungs
-        # to renormalize washed out images
-        middle = img[100:400,100:400] 
-        #mean = np.mean(middle)  
-        #max = np.max(img)
-        #min = np.min(img)
-        # To improve threshold finding, I'm moving the 
-        # underflow and overflow on the pixel spectrum
-        #img[img==max]=mean
-        #img[img==min]=mean
-        #
-        # Using Kmeans to separate foreground (radio-opaque tissue)
-        # and background (radio transparent tissue ie lungs)
-        # Doing this only on the center of the image to avoid 
-        # the non-tissue parts of the image as much as possible
-        #
-        kmeans = KMeans(n_clusters=2).fit(np.reshape(middle,[np.prod(middle.shape),1]))
-        centers = sorted(kmeans.cluster_centers_.flatten())
-        threshold = np.mean(centers)
-        thresh_img = np.where(img<threshold,1.0,0.0)  # threshold the image
-        #
-        # I found an initial erosion helful for removing graininess from some of the regions
-        # and then large dialation is used to make the lung region 
-        # engulf the vessels and incursions into the lung cavity by 
-        # radio opaque tissue
-        #
-        eroded = morphology.erosion(thresh_img,np.ones([4,4]))
-        dilation = morphology.dilation(eroded,np.ones([10,10]))
-        #
-        #  Label each region and obtain the region properties
-        #  The background region is removed by removing regions 
-        #  with a bbox that is to large in either dimnsion
-        #  Also, the lungs are generally far away from the top 
-        #  and bottom of the image, so any regions that are too
-        #  close to the top and bottom are removed
-        #  This does not produce a perfect segmentation of the lungs
-        #  from the image, but it is surprisingly good considering its
-        #  simplicity. 
-        #
-        labels = measure.label(dilation)
-        label_vals = np.unique(labels)
-        regions = measure.regionprops(labels)
-        good_labels = []
-        for prop in regions:
-            B = prop.bbox
-            if B[2]-B[0]<475 and B[3]-B[1]<475 and B[0]>40 and B[2]<472:
-                good_labels.append(prop.label)
-        mask = np.ndarray([512,512],dtype=np.int8)
-        mask[:] = 0
-        #
-        #  The mask here is the mask for the lungs--not the nodes
-        #  After just the lungs are left, we do another large dilation
-        #  in order to fill in and out the lung mask 
-        #
-        for N in good_labels:
-            mask = mask + np.where(labels==N,1,0)
-        mask = morphology.dilation(mask,np.ones([10,10])) # one last dilation
-        imgs_to_process[i] = mask
+        im=segment_lung(img)
+        imgs_to_process[i] = im
+        print(im.shape)
     np.save(img_file.replace("images","lungmask"),imgs_to_process)
 
 file_list=glob(working_path+"lungmask_*.npy")
@@ -158,6 +249,7 @@ for fname in file_list:
             out_nodemasks.append(new_node_mask)
 
 num_images = len(out_images)
+print(num_images)
 #
 #  Writing out images and masks as 1 channel arrays for input into network
 #
@@ -168,7 +260,7 @@ for i in range(num_images):
     final_masks[i,0] = out_nodemasks[i]
 rand_i = np.random.choice(range(num_images),size=num_images,replace=False)
 test_i = int(0.2*num_images)
-np.save(working_path+"trainImages.npy",final_images[rand_i[test_i:]])
-np.save(working_path+"trainMasks.npy",final_masks[rand_i[test_i:]])
-np.save(working_path+"testImages.npy",final_images[rand_i[:test_i]])
-np.save(working_path+"testMasks.npy",final_masks[rand_i[:test_i]])
+np.save(working_path+"trainImages1.npy",final_images[rand_i[test_i:]])
+np.save(working_path+"trainMasks1.npy",final_masks[rand_i[test_i:]])
+np.save(working_path+"testImages1.npy",final_images[rand_i[:test_i]])
+np.save(working_path+"testMasks1.npy",final_masks[rand_i[:test_i]])
