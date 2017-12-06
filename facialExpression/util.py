@@ -92,3 +92,10 @@ def getBinaryData():
                 Y.append(y)
                 X.append([int(p) for p in row[1].split()])
     return np.array(X) / 255.0, np.array(Y)
+
+def getImageData():
+    X, Y = getData()
+    N, D = X.shape
+    d = int(np.sqrt(D))
+    X = X.reshape(N, 1, d, d)
+    return X, Y

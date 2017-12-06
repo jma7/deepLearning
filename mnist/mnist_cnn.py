@@ -55,7 +55,7 @@ class ANN(object):
 		self.T=tf.placeholder(tf.float32,shape=[None,10])
 		self.mnist=mnist
 
-	def fit(self,lr=10e-5, mu=0.99, decay=0.999, reg=10e-3, epochs=400, batch_sz=100, show_fig=False):
+	def fit(self,lr=10e-5, mu=0.99, decay=0.999, reg=10e-3, epochs=100, batch_sz=100, show_fig=False):
 		N,D=self.mnist.test.images.shape
 		self.hidden_layers=[]
 		M1=D
@@ -101,7 +101,9 @@ class ANN(object):
 						# accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 						# e= accuracy.eval(feed_dict={self.x: Xvalid, self.T: Yvalid})
 						print("i:", i, "j:", j, "nb:", n_batches, "cost:", c, "error rate:", e)
-			
+		if show_fig:
+			plt.plot(costs)
+			plt.show()			
 
 	def forward(self,X):
 		Z=X
@@ -136,7 +138,7 @@ class ConvPoolLayer(object):
 			ksize=[1,self.poolsize[0],self.poolsize[1],1],
 			strides=[1,self.poolsize[0],self.poolsize[1],1],
 			padding="SAME")
-		return tf.tanh(pool_out)
+		return tf.nn.relu(pool_out)
 
 class CNN(object):
 	def __init__(self,convpool_layer_sizes,hidden_layer_sizes,mnist):
@@ -147,7 +149,7 @@ class CNN(object):
 		
 		self.mnist=mnist
 
-	def fit(self,lr=10e-4, mu=0.99,reg=10e-4,decay=0.9999,eps=10e-3,batch_sz=30,epochs=3,show_fig=True):
+	def fit(self,lr=10e-4, mu=0.99,reg=10e-4,decay=0.9999,eps=10e-3,batch_sz=30,epochs=10,show_fig=True):
 		
 		N,D=self.mnist.test.images[:-batch_sz].shape
 		width=28
@@ -168,13 +170,13 @@ class CNN(object):
 			outheight=outheight//2
 			mi=mo
 		#flatten
-		print(outwidth,outheight)
+		# print(outwidth,outheight)
 		M1=self.convpool_layer_sizes[-1][0]*outwidth*outheight
 		count=0
 
 		#hidden full connnected layers
 		for M2 in self.hidden_layer_sizes:
-			print(M1,M2)
+			# print(M1,M2)
 			h=HiddenLayer(M1,M2,count)
 			# print("hidden",M1,M2)
 			M1=M2
@@ -192,13 +194,16 @@ class CNN(object):
 		for h in self.hidden_layers:
 			self.params += h.params
 		self.y=self.forward(self.x)
+
+		keep_prob = tf.placeholder(tf.float32)
+		self.y = tf.nn.dropout(self.y, keep_prob)
 		
 		Xvalid=self.mnist.test.images[-batch_sz:]
 		Yvalid=self.mnist.test.labels[-batch_sz:]
 		Yvalid_flat = np.argmax(Yvalid, axis=1)
 		rcost = reg*sum([tf.nn.l2_loss(p) for p in self.params])
 		cost=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.y,labels=self.T))+rcost
-		train_step = tf.train.RMSPropOptimizer(lr, decay=decay, momentum=mu).minimize(cost)
+		train_step = tf.train.AdamOptimizer(lr).minimize(cost)
 		prediction = self.predict(self.x)
 		init = tf.global_variables_initializer()
 		n_batches = N // batch_sz
@@ -208,30 +213,32 @@ class CNN(object):
 			for i in range(epochs):
 				for j in range(n_batches-1):
 					batch = self.mnist.train.next_batch(batch_sz)
-					sess.run(train_step, feed_dict={self.x: np.reshape(batch[0],[batch_sz,28,28,1]), self.T: batch[1]})
+					sess.run(train_step, feed_dict={self.x: np.reshape(batch[0],[batch_sz,28,28,1]), self.T: batch[1],keep_prob: 0.5})
 					if j % 20 == 0:
-						c = sess.run(cost, feed_dict={self.x: np.reshape(Xvalid,[batch_sz,28,28,1]), self.T: Yvalid})
+						c = sess.run(cost, feed_dict={self.x: np.reshape(Xvalid,[batch_sz,28,28,1]), self.T: Yvalid,keep_prob: 0.5})
 						costs.append(c)
-						p = sess.run(prediction, feed_dict={self.x: np.reshape(Xvalid,[batch_sz,28,28,1]), self.T: Yvalid})
+						p = sess.run(prediction, feed_dict={self.x: np.reshape(Xvalid,[batch_sz,28,28,1]), self.T: Yvalid,keep_prob: 0.5})
 						e = error_rate(Yvalid_flat, p)
 						# correct_prediction = tf.equal(tf.argmax(self.y,1), tf.argmax(self.T,1))
 						# accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 						# e= accuracy.eval(feed_dict={self.x: Xvalid, self.T: Yvalid})
 						print("i:", i, "j:", j, "nb:", n_batches, "cost:", c, "error rate:", e)
-			
+		if show_fig:
+			plt.plot(costs)
+			plt.show()		
+
+	
 
 	def forward(self,X):
 		Z=X
 		for c in self.convpool_layers:
 			Z=c.forward(Z)
 		Z_shape=Z.get_shape().as_list()
-		print(Z_shape)
 		Z = tf.reshape(Z, [-1, np.prod(Z_shape[1:])])
-		print(Z)
 		for h in self.hidden_layers:
 			Z=h.forward(Z)
-			# print(h.M1,h.M2,Z)
 		return tf.matmul(Z,self.W)+self.b
+
 
 	def predict(self,X):
 		act=self.forward(X)
@@ -239,29 +246,10 @@ class CNN(object):
 
 
 
-# class cnn(object):
-# 	def __init__(self,mnist):
-# 		self.mnist=mnist
-# 		self.x=tf.placeholder(tf.float32,shape=[None,784])
-# 		self.T=tf.placeholder(tf.float32,shape=[None,10])
-# 		self.W=tf.Variable(tf.zeros([784,10]))
-# 		self.b=tf.Variable(tf.zeros([10]))
-
-# 	def fit(self):
-
-
-
-
-# 	def forward(self,x):
-
-
-
-
-
 mnist=input_data.read_data_sets('MNIST_data',one_hot=True)
 # model=logistic(mnist)
 #model=ANN([100,50],mnist)
-model = CNN([(32, 5, 5), (64, 5, 5)],[500, 300],mnist)
+model = CNN([(32, 5, 5), (64, 5, 5)],[128,50],mnist)
 model.fit()
 
 
