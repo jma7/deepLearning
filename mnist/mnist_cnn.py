@@ -170,13 +170,13 @@ class CNN(object):
 			outheight=outheight//2
 			mi=mo
 		#flatten
-		# print(outwidth,outheight)
+		print(outwidth,outheight)
 		M1=self.convpool_layer_sizes[-1][0]*outwidth*outheight
 		count=0
 
 		#hidden full connnected layers
 		for M2 in self.hidden_layer_sizes:
-			# print(M1,M2)
+			print(M1,M2)
 			h=HiddenLayer(M1,M2,count)
 			# print("hidden",M1,M2)
 			M1=M2
