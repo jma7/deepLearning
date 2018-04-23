@@ -80,7 +80,7 @@ def segment_lung(img):
     #
     for N in good_labels:
         mask = mask + np.where(labels==N,1,0)
-    mask = morphology.dilation(mask,np.ones([10,10])) # one last dilation
+    mask = morphology.dilation(mask,np.ones([5,5])) # one last dilation
     return mask
 
 def get_segmented_lungs(im, plot=False):
@@ -242,6 +242,8 @@ for fname in file_list:
             min = np.min(img)
             max = np.max(img)
             img = (img-mean)/(max-min)
+            img[img<0.3]=0
+            img[img>1]=1
             new_img = resize(img,[512,512])
             new_node_mask = resize(node_mask[min_row:max_row,min_col:max_col],[512,512])
             new_node_mask = (new_node_mask > 0.0).astype(np.float32)
@@ -249,7 +251,6 @@ for fname in file_list:
             out_nodemasks.append(new_node_mask)
 
 num_images = len(out_images)
-print(num_images)
 #
 #  Writing out images and masks as 1 channel arrays for input into network
 #
@@ -260,7 +261,7 @@ for i in range(num_images):
     final_masks[i,0] = out_nodemasks[i]
 rand_i = np.random.choice(range(num_images),size=num_images,replace=False)
 test_i = int(0.2*num_images)
-np.save(working_path+"trainImages1.npy",final_images[rand_i[test_i:]])
-np.save(working_path+"trainMasks1.npy",final_masks[rand_i[test_i:]])
-np.save(working_path+"testImages1.npy",final_images[rand_i[:test_i]])
-np.save(working_path+"testMasks1.npy",final_masks[rand_i[:test_i]])
+np.save(working_path+"trainImages.npy",final_images[rand_i[test_i:]])
+np.save(working_path+"trainMasks.npy",final_masks[rand_i[test_i:]])
+np.save(working_path+"testImages.npy",final_images[rand_i[:test_i]])
+np.save(working_path+"testMasks.npy",final_masks[rand_i[:test_i]])
