@@ -3,3 +3,5 @@ __pycache__/
 .DS_Store
 fer2013/*
 MNIST_data/*
+kaggle18/*.csv
+kaggle18/*.h5

@@ -26,9 +26,9 @@ from unet_keras import *
 
 
 import tensorflow as tf
+from param_config import *
+from data_augmentation import *
 
-
-TRAIN_PATH = '/work/05268/junma7/data-science-bowl-2018/input/stage1_train/'
 
 warnings.filterwarnings('ignore', category=UserWarning, module='skimage')
 seed = 42
@@ -39,27 +39,31 @@ np.random.seed = seed
 train_ids = next(os.walk(TRAIN_PATH))[1]
 
 # Get and resize train images and masks
-X_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
-Y_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.bool)
-print('Getting and resizing train images and masks ... ')
-sys.stdout.flush()
-for n, id_ in tqdm(enumerate(train_ids), total=len(train_ids)):
-    path = TRAIN_PATH + id_
-    img = imread(path + '/images/' + id_ + '.png')[:,:,:IMG_CHANNELS]
-    img = resize(img, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
-    X_train[n] = img
-    mask = np.zeros((IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.bool)
-    for mask_file in next(os.walk(path + '/masks/'))[2]:
-        mask_ = imread(path + '/masks/' + mask_file)
-        mask_ = np.expand_dims(resize(mask_, (IMG_HEIGHT, IMG_WIDTH), mode='constant', 
-                                      preserve_range=True), axis=-1)
-        mask = np.maximum(mask, mask_)
-    Y_train[n] = mask
+#def get_train_data(train_ids):
+#	X_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
+#	Y_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.bool)
+#	print('Getting and resizing train images and masks ... ')
+#	sys.stdout.flush()
+#	for n, id_ in tqdm(enumerate(train_ids), total=len(train_ids)):
+ #   		path = TRAIN_PATH + id_
+ #   		img = imread(path + '/images/' + id_ + '.png')[:,:,:IMG_CHANNELS]
+ #   		img = resize(img, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
+ #   		X_train[n] = img
+ #   		mask = np.zeros((IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.bool)
+ #   	for mask_file in next(os.walk(path + '/masks/'))[2]:
+ #       	mask_ = imread(path + '/masks/' + mask_file)
+ #       	mask_ = np.expand_dims(resize(mask_, (IMG_HEIGHT, IMG_WIDTH), mode='constant', 
+ #                                     preserve_range=True), axis=-1)
+ #       	mask = np.maximum(mask, mask_)
+ #   		Y_train[n] = mask
 
+split_num = 10
+#make_data_augmentation(train_ids,X_train,Y_train,split_num)
+X_aug_train,Y_aug_train=get_augmented_data(train_ids,split_num)
 
 model=unet()
 earlystopper = EarlyStopping(patience=5, verbose=1)
-checkpointer = ModelCheckpoint('model-dsbowl2018-4.h5', verbose=1, save_best_only=True)
-results = model.fit(X_train, Y_train, validation_split=0.1, batch_size=64, epochs=100, 
+checkpointer = ModelCheckpoint('model-dsbowl2018-augm-100.h5', verbose=1, save_best_only=True)
+results = model.fit(X_aug_train, Y_aug_train, validation_split=0.1, batch_size=64, epochs=100, 
                     callbacks=[earlystopper, checkpointer])
 

@@ -61,7 +61,7 @@ for n, id_ in tqdm(enumerate(test2_ids), total=len(test2_ids)):
     img = resize(img, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
     X2_test[n] = img
 
-model = load_model('model-dsbowl2018-4.h5', custom_objects={'mean_iou': mean_iou})
+model = load_model('model-dsbowl2018-augm.h5', custom_objects={'mean_iou': mean_iou})
 preds2_test2 = model.predict(X2_test, verbose=1)
 # Threshold predictions
 preds2_test_t= (preds2_test2 > 0.5).astype(np.uint8)
@@ -87,6 +87,6 @@ for n, id_ in enumerate(test2_ids):
 sub = pd.DataFrame()
 sub['ImageId'] = new_test2_ids
 sub['EncodedPixels'] = pd.Series(rles).apply(lambda x: ' '.join(str(y) for y in x))
-sub.to_csv('sub-dsbowl2018-4_26.csv', index=False)
+sub.to_csv('sub-dsbowl2018-05_01.csv', index=False)
 
 
